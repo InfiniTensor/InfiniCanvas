@@ -227,13 +227,13 @@ def load_model_pt(model_dir):
                         tensor_name += "FeedForward/down_proj/weight"
         else:
             print(f"Unmatched param: {name}")
-        
+
         tensors[tensor_name] = data.numpy()
 
     return tensors
 
 
-def main(model_path="/data1/shared/9G-Infer/models/11B-Chat-QY-epoch-8"):
+def main(model_path):
     from infinicanvas.models.llama import LlamaModel, LlamaConfig
     from infinicanvas.modeling import DTYPE
 
@@ -257,17 +257,10 @@ def main(model_path="/data1/shared/9G-Infer/models/11B-Chat-QY-epoch-8"):
     tokenizer = CPM9GTokenizer(os.path.join(model_path, "vocabs.txt"))
     config = LlamaConfig(**settings)
     model = LlamaModel(config)
-    inputs = [
-        "token_ids",
-        "r_embedding_cos",
-        "r_embedding_sin",
-        "attention_mask"
-    ]
+    inputs = ["token_ids", "r_embedding_cos", "r_embedding_sin", "attention_mask"]
     model(*inputs)
     model.to("nvidia", 9)
-    model.load_params(
-        load_model_pt(os.path.join(model_path, "cpm9g-11b-sft.pt"))
-    )
+    model.load_params(load_model_pt(os.path.join(model_path, "cpm9g-11b-sft.pt")))
 
     model.generate(
         "Once upon a time,",
@@ -276,4 +269,7 @@ def main(model_path="/data1/shared/9G-Infer/models/11B-Chat-QY-epoch-8"):
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    model_path = sys.argv[1]
+    main(model_path)
