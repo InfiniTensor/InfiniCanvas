@@ -1,0 +1,9 @@
+/build
+*.egg-info
+__pycache__
+
+*.txt
+*.so
+*.onnx
+*.pt
+*.npy
