@@ -4,7 +4,7 @@ import numpy as np
 
 class Linear(InfiniTensorModel):
     """
-    Linear layer follows the formula Y = XW + b, where W is weight of shape (in_features, out_features), b is
+    Linear layer follows the formula Y = XW^T + b, where W is weight of shape (out_features, in_features), b is
     optional bias of shape (out_features,). Input X should have shape (..., in_features)
     """
 
