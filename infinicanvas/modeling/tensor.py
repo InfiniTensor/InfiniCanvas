@@ -1,5 +1,7 @@
 from enum import Enum
 import numpy as np
+from typing import Tuple, List
+
 
 class DTYPE(Enum):
     F32 = (1, np.float32)
@@ -35,3 +37,18 @@ def find_onnx_type(numpy_type):
             return dtype.onnx_type()
     raise ValueError(f"No corresponding ONNX type found for numpy type: {numpy_type}")
 
+
+class TensorRecord:
+    def __init__(
+        self,
+        array: np.ndarray | None = None,
+        shape: Tuple | List | None = None,
+        dtype: DTYPE | None = None,
+    ) -> None:
+        assert array or (shape and dtype)
+        self.array = array
+        self.shape = tuple(shape)
+        self.dtype = dtype
+
+        self.file_path = None
+        self.file_offset = None

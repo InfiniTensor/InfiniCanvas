@@ -63,9 +63,8 @@ class LlamaModel(InfiniTensorModel):
         )
         self.num_layers = config.num_hidden_layers
         self.embed_tokens = self.parameter(
-            (np.random.random((config.vocab_size, config.hidden_size))).astype(
-                config.dtype.np_type()
-            ),
+            (config.vocab_size, config.hidden_size),
+            config.dtype,
             "embed_tokens",
         )
         self.decoders = [

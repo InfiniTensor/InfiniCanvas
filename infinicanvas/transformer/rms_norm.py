@@ -8,9 +8,7 @@ class RMSNorm(InfiniTensorModel):
         self.eps = eps
         self.hidden_size = hidden_size
         self.dtype = dtype
-        self.weight = self.parameter(
-            np.ones(self.hidden_size, dtype=DTYPE.F32.np_type()), "weight"
-        )
+        self.weight = self.parameter((self.hidden_size,), DTYPE.F32, "weight")
 
     def __call__(self, hidden_states):
         super().__call__([hidden_states])
