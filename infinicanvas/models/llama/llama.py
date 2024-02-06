@@ -103,7 +103,7 @@ class LlamaModel(InfiniTensorModel):
         self.outputs = [logits]
         return logits
 
-    def generate(self, input_text: str, tokenizer: InfiniTensorTokenizer):
+    def generate(self, input_text: str, tokenizer: InfiniTensorTokenizer, top_k=5, top_p=1.0, temperature=1.0):
         token_ids, r_embedding_cos, r_embedding_sin = tuple(self.inputs[:3])
         attention_mask = self.inputs[3] if len(self.inputs) >= 4 else None
 
@@ -135,7 +135,7 @@ class LlamaModel(InfiniTensorModel):
         whole_text += input_text
         print(input_text, end="")
         output = output[:, -1, None, :]
-        output_token = greedy_search(output)
+        output_token = random_search(output, top_k, top_p, temperature)
         output_text = tokenizer.decode(output_token.flatten().tolist())
         print(output_text, end="")
         whole_text += output_text
@@ -153,7 +153,7 @@ class LlamaModel(InfiniTensorModel):
                 variable_map["seq_len"] + variable_map["past_seq_len"]
             )
             output = self.run(inputs, variable_map)[0]
-            output_token = greedy_search(output)
+            output_token = random_search(output, top_k, top_p, temperature)
             output_text = tokenizer.decode(output_token.flatten().tolist())
             print(output_text, end="")
             whole_text += output_text
@@ -202,24 +202,25 @@ def greedy_search(logits) -> np.ndarray:
     return np.argmax(logits, axis=-1)
 
 
-def random_search(logits, top_k=5) -> np.ndarray:
+def random_search(logits, top_k=5, top_p=1.0, temperature=1.0) -> np.ndarray:
     assert len(logits.shape) == 3
     bs, seq_l, vocab_size = logits.shape
-    # Apply softmax to convert logits to probabilities
-    logits = logits.reshape(bs * seq_l, vocab_size)
-    probabilities = np.exp(logits) / np.sum(np.exp(logits))
-    # Sample from the top-k probabilities to perform random search
-    sampled_indices = np.array(
-        [
-            np.random.choice(vocab_size, top_k, replace=False, p=probabilities[i])
-            for i in range(bs * seq_l)
-        ]
-    )
-    # Select one random index from the sampled indices
-    selected_index = np.array(
-        [np.random.choice(sampled_indices[i]) for i in range(bs * seq_l)]
-    )
-    return selected_index.reshape(bs, seq_l)
+
+    logits = logits.reshape(bs * seq_l, vocab_size) / temperature
+    probabilities = np.exp(logits) / np.sum(np.exp(logits), axis=-1, keepdims=True)
+
+    sorted_indices = np.flip(np.argsort(probabilities, axis=-1)[:, -top_k:], axis=-1)
+    cumulative_prob = np.cumsum(probabilities[np.arange(bs * seq_l)[:, None], sorted_indices], axis=-1)
+    mask = cumulative_prob <= top_p
+
+    result = []
+    for i in range(bs * seq_l):
+        filtered_indices = sorted_indices[i, mask[i]]
+        filtered_prob = probabilities[i][filtered_indices]
+        filtered_prob = np.exp(filtered_prob) / np.sum(np.exp(filtered_prob))
+        result.append(np.random.choice(filtered_indices, p=filtered_prob))
+
+    return np.array(result).reshape(bs, seq_l)
 
 
 class ROPE_HF:
