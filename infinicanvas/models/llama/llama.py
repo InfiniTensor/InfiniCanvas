@@ -103,7 +103,7 @@ class LlamaModel(InfiniTensorModel):
         self.outputs = [logits]
         return logits
 
-    def generate(self, input_text: str, tokenizer: InfiniTensorTokenizer, top_k=5, top_p=1.0, temperature=1.0):
+    def generate(self, input_text: str, tokenizer: InfiniTensorTokenizer, top_k=3, top_p=1.0, temperature=1.0, max_length = 100):
         token_ids, r_embedding_cos, r_embedding_sin = tuple(self.inputs[:3])
         attention_mask = self.inputs[3] if len(self.inputs) >= 4 else None
 
@@ -140,7 +140,8 @@ class LlamaModel(InfiniTensorModel):
         print(output_text, end="")
         whole_text += output_text
 
-        for pos_id in range(seq_len, self.config.hidden_size):
+        max_length = min(max_length + seq_len, self.config.hidden_size)
+        for pos_id in range(seq_len, max_length):
             inputs[token_ids] = output_token
             inputs[r_embedding_cos], inputs[r_embedding_sin] = self.rope_embed([pos_id])
             if attention_mask is not None:
@@ -157,8 +158,8 @@ class LlamaModel(InfiniTensorModel):
             output_text = tokenizer.decode(output_token.flatten().tolist())
             print(output_text, end="")
             whole_text += output_text
-            if whole_text.endswith("</s>"):
-                break
+            # if whole_text.endswith("</s>"):
+            #     break
         print("")
         return whole_text
 
@@ -203,6 +204,8 @@ def greedy_search(logits) -> np.ndarray:
 
 
 def random_search(logits, top_k=5, top_p=1.0, temperature=1.0) -> np.ndarray:
+    if temperature == 0:
+        return greedy_search(logits)
     assert len(logits.shape) == 3
     bs, seq_l, vocab_size = logits.shape
 
