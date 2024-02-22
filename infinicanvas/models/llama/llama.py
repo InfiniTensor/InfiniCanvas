@@ -207,6 +207,7 @@ def random_search(logits, top_k=5, top_p=1.0, temperature=1.0) -> np.ndarray:
     bs, seq_l, vocab_size = logits.shape
 
     logits = logits.reshape(bs * seq_l, vocab_size) / temperature
+    logits = logits - logits.max()
     probabilities = np.exp(logits) / np.sum(np.exp(logits), axis=-1, keepdims=True)
 
     sorted_indices = np.flip(np.argsort(probabilities, axis=-1)[:, -top_k:], axis=-1)
@@ -217,6 +218,7 @@ def random_search(logits, top_k=5, top_p=1.0, temperature=1.0) -> np.ndarray:
     for i in range(bs * seq_l):
         filtered_indices = sorted_indices[i, mask[i]]
         filtered_prob = probabilities[i][filtered_indices]
+        filtered_prob = filtered_prob - filtered_prob.max()
         filtered_prob = np.exp(filtered_prob) / np.sum(np.exp(filtered_prob))
         result.append(np.random.choice(filtered_indices, p=filtered_prob))
 
