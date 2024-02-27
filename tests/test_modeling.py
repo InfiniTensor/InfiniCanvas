@@ -51,7 +51,7 @@ class TestModeling(unittest.TestCase):
         def __init__(self, shape, **kwargs):
             super().__init__(**kwargs)
             self.addtwo = self.make_submodel(TestModeling.AddTwoModel)
-            self.bias = self.parameter(np.zeros(shape, dtype=np.int32), "bias")
+            self.bias = self.parameter(shape, DTYPE.I32, "bias")
 
         def __call__(self, input: str):
             super().__call__([input])

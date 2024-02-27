@@ -12,7 +12,7 @@ from refactor_graph import (
 from typing import Dict, List, Any, Tuple, Union
 import numpy as np
 from collections import OrderedDict
-from .tensor import DTYPE, find_onnx_type
+from .tensor import DTYPE, find_onnx_type, TensorRecord
 
 
 def next_name(names_dict: Dict[str, int], name: str):
@@ -60,14 +60,15 @@ class InfiniTensorModel:
     def __init__(
         self,
         model_name: str | None = None,
-        _parameters: OrderedDict[str, np.ndarray] | None = None,
+        _parameters: OrderedDict[str, TensorRecord] | None = None,
         _const_edges: Dict[str, np.ndarray] | None = None,
         _nodes: Dict[str, Tuple[List[str], List[str]]] | None = None,
         _operators: Dict[str, Tuple[str, Dict[str, Any]]] | None = None,
         _node_names: Dict[str, int] | None = None,
         _tensor_names: Dict[str, int] | None = None,
-        _dynamic_tensors: Dict[str, Tuple[Tuple[Union[str, int], ...], DTYPE]]
-        | None = None,
+        _dynamic_tensors: (
+            Dict[str, Tuple[Tuple[Union[str, int], ...], DTYPE]] | None
+        ) = None,
         _cache: List[Tuple[str, str, Any]] | None = None,
     ) -> None:
         """The initializer for InfiniTensor Model.
@@ -92,7 +93,7 @@ class InfiniTensorModel:
         """
         self.inputs: List[str] = []
         self.outputs: List[str] = []
-        self._parameters: OrderedDict[str, np.ndarray] = (
+        self._parameters: OrderedDict[str, TensorRecord] = (
             _parameters if _parameters is not None else OrderedDict()
         )
         self._const_edges: Dict[str, np.ndarray] = (
@@ -168,9 +169,11 @@ class InfiniTensorModel:
             output_names = [f"{node_name}_Output_{i}" for i in range(outputs)]
         else:
             output_names = [
-                f"{node_name}_Output_{i}"
-                if tensor_name is None or tensor_name == ""
-                else tensor_name
+                (
+                    f"{node_name}_Output_{i}"
+                    if tensor_name is None or tensor_name == ""
+                    else tensor_name
+                )
                 for i, tensor_name in enumerate(outputs)
             ]
         # process constant input
@@ -187,18 +190,14 @@ class InfiniTensorModel:
         self._nodes[node_name] = (input_names, output_names)
         return output_names
 
-    def make_tensor_np(self, data: np.ndarray, name: str):
+    def parameter(self, shape, dtype, name: str = "param"):
         tensor_name = next_name(self._tensor_names, f"{self.base_name}/{name}")
-        return tensor_name, data  # _make_data(data)
-
-    def parameter(self, data: np.ndarray, name: str = "param"):
-        tensor_name, tensor = self.make_tensor_np(data, name)
-        self._parameters[tensor_name] = tensor
+        self._parameters[tensor_name] = TensorRecord(shape=shape, dtype=dtype)
         return tensor_name
 
     def constant(self, data: np.ndarray, name: str = "constant"):
-        tensor_name, tensor = self.make_tensor_np(data, name)
-        self._const_edges[tensor_name] = tensor
+        tensor_name = next_name(self._tensor_names, f"{self.base_name}/{name}")
+        self._const_edges[tensor_name] = data
         return tensor_name
 
     def init_cache(
@@ -287,7 +286,8 @@ class InfiniTensorModel:
                 name: _make_data(data) for name, data in self._const_edges.items()
             }
             parameters = {
-                name: _make_data(data) for name, data in self._parameters.items()
+                name: _make_data(tensor_record.array)
+                for name, tensor_record in self._parameters.items()
             }
             edges: Dict[str, Tensor] = {}
             if inputs is not None:
@@ -436,8 +436,10 @@ class InfiniTensorModel:
         initializer = []
         for name, data in self._const_edges.items():
             initializer.append(onnx.numpy_helper.from_array(data, name=name))
-        for name, data in self._parameters.items():
-            initializer.append(onnx.numpy_helper.from_array(data, name=name))
+        for name, tensor_record in self._parameters.items():
+            initializer.append(
+                onnx.numpy_helper.from_array(tensor_record.array, name=name)
+            )
         for name, (dynamic_tensor, tensor_type) in self._dynamic_tensors.items():
             initializer.append(
                 onnx.numpy_helper.from_array(
@@ -468,12 +470,12 @@ class InfiniTensorModel:
                     print(
                         f"Warning: Shape mismatch for {name}, expecting {self._parameters[name].shape} but get {new_data.shape}."
                     )
-                if self._parameters[name].dtype != new_data.dtype:
+                if self._parameters[name].dtype.np_type() != new_data.dtype:
                     print(
-                        f"Warning: Type mismatch for {name}. Casting to {self._parameters[name].dtype} from {new_data.dtype}."
+                        f"Warning: Type mismatch for {name}. Casting to {self._parameters[name].dtype.np_type()} from {new_data.dtype}."
                     )
-                    new_data = new_data.astype(self._parameters[name].dtype)
-                self._parameters[name] = new_data
+                    new_data = new_data.astype(self._parameters[name].dtype.np_type())
+                self._parameters[name].array = new_data
             else:
                 print(f"Warning: Value for {name} is not provided for loading.")
 

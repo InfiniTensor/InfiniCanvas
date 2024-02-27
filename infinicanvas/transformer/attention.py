@@ -243,8 +243,8 @@ class RotaryEmbedding(InfiniTensorModel):
     def __call__(self, input, cos, sin):
         """
         Args:
-            embedding:(seq_len, head_dim)
-            input: (bs, seq_len, num_head, head_dim)
+            cos/sin:(seq_len, head_dim)
+            input: (bs, num_head, seq_len, head_dim)
         """
         super().__call__([input, cos, sin])
         embed = self.add(self.mul(input, cos), self.mul(self.rotate_half(input), sin))
