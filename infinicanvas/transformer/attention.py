@@ -177,7 +177,7 @@ class Attention(InfiniTensorModel):
         return attn_weights
 
     def matmul_group_v(self, attn_weights, value_states):
-        key_states = self.unsqueeze(value_states, 2)
+        value_states = self.unsqueeze(value_states, 2)
         attn_weights = self.reshape(
             attn_weights,
             self.dynamic_tensor(
@@ -191,7 +191,7 @@ class Attention(InfiniTensorModel):
                 DTYPE.I64,
             ),
         )
-        attn_output = self.matmul(attn_weights, key_states)
+        attn_output = self.matmul(attn_weights, value_states)
         attn_output = self.reshape(
             attn_output,
             self.dynamic_tensor(
