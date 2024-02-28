@@ -113,11 +113,10 @@ class Attention(InfiniTensorModel):
         if self.use_kv_cache:
             key_states, value_states = self.cache_kv(key_states, value_states)
 
-        key_states = self.transpose(key_states, [0, 1, 3, 2])
         if self.num_kv_groups > 1:
             attn_weights = self.matmul_group_k(query_states, key_states)
         else:
-            attn_weights = self.matmul(query_states, key_states)
+            attn_weights = self.matmul(query_states, key_states, transB=1)
 
         attn_weights = self.div(
             attn_weights,
@@ -166,7 +165,7 @@ class Attention(InfiniTensorModel):
                 DTYPE.I64,
             ),
         )
-        attn_weights = self.matmul(query_states, key_states)
+        attn_weights = self.matmul(query_states, key_states, transB=1)
         attn_weights = self.reshape(
             attn_weights,
             self.dynamic_tensor(
