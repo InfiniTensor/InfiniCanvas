@@ -13,6 +13,7 @@ from typing import Dict, List, Any, Tuple, Union
 import numpy as np
 from collections import OrderedDict
 from .tensor import DTYPE, find_onnx_type, TensorRecord
+from enum import Enum
 
 
 def next_name(names_dict: Dict[str, int], name: str):
@@ -36,6 +37,13 @@ def resolve_variable(
         else:
             result.append(variable_map[item])
     return result
+
+
+class OperatorStandard(Enum):
+    # Onnx standard (default)
+    ONNX = "onnx"
+    # Custom large language model standard
+    LLM = "llm"
 
 
 class InfiniTensorModel:
@@ -152,11 +160,12 @@ class InfiniTensorModel:
         inputs: Tuple[Union[str, np.ndarray], ...],
         outputs: Tuple[str, ...] | int = 1,
         name: str | None = None,
-        use_onnx_standard: bool = True,
+        op_standard: OperatorStandard = OperatorStandard.ONNX,
     ):
-        op_name = op_type
-        if use_onnx_standard and not op_type.startswith("onnx::"):
-            op_name = "onnx::" + op_name
+        if op_standard == OperatorStandard.LLM:
+            op_name = "llm::" + op_type
+        else:  # ONNX
+            op_name = "onnx::" + op_type
         # Get complete node name from op_type if name not given.
         # This node name should be unique throughout the whole model topology.
         node_name = (
@@ -511,11 +520,11 @@ class InfiniTensorModel:
 
     def matmul(self, A, B, Y="", transA=0, transB=0) -> str:
         return self.make_op(
-            "llm::MatMul",
+            "MatMul",
             {"transA": transA, "transB": transB},
             (A, B),
             (Y,),
-            use_onnx_standard=False,
+            op_standard=OperatorStandard.LLM,
         )[0]
 
     def gemm(self, A, B, C=None, Y="", alpha=1.0, beta=1.0, transA=0, transB=0) -> str:
@@ -599,9 +608,9 @@ class InfiniTensorModel:
 
     def rms_norm(self, input, weight, eps=1e-5, output=""):
         return self.make_op(
-            "llm::RmsNormalization",
+            "RmsNormalization",
             {"epsilon": eps},
             (input, weight),
             (output,),
-            use_onnx_standard=False,
+            op_standard=OperatorStandard.LLM,
         )[0]
