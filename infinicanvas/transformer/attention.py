@@ -1,7 +1,7 @@
 from ..modeling import InfiniTensorModel, DTYPE
 from ..nn import Linear
 import numpy as np
-
+import math
 
 class Attention(InfiniTensorModel):
     def __init__(
@@ -16,6 +16,8 @@ class Attention(InfiniTensorModel):
         attention_bias=False,
         use_kv_cache=True,
         past_seq_len="past_seq_len",
+        rope_theta = 10000.0,
+        rope_scaling = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -34,6 +36,7 @@ class Attention(InfiniTensorModel):
             if isinstance(self.seq_len, int) and isinstance(self.past_seq_len, int)
             else "total_seq_len"
         )
+        self.rope_theta = rope_theta
 
         self.q_proj = self.make_submodel(
             Linear,
@@ -70,9 +73,9 @@ class Attention(InfiniTensorModel):
         self.rotary_embedding = self.make_submodel(RotaryEmbedding, self.head_dim)
 
     def __call__(
-        self, hidden_states, r_embedding_cos, r_embedding_sin, attention_mask=None
+        self, hidden_states, pos_ids, attention_mask=None
     ):
-        super().__call__([hidden_states, r_embedding_cos, r_embedding_sin])
+        super().__call__([hidden_states, pos_ids])
         if attention_mask is not None:
             self.inputs.append(attention_mask)
 
@@ -101,14 +104,13 @@ class Attention(InfiniTensorModel):
                 DTYPE.I64,
             ),
         )
+
+        query_states = self.rotary_position_embedding(query_states, pos_ids, self.rope_theta)
+        key_states = self.rotary_position_embedding(key_states, pos_ids, self.rope_theta)
+
         query_states = self.transpose(query_states, [0, 2, 1, 3])
         key_states = self.transpose(key_states, [0, 2, 1, 3])
         value_states = self.transpose(value_states, [0, 2, 1, 3])
-
-        query_states = self.rotary_embedding(
-            query_states, r_embedding_cos, r_embedding_sin
-        )
-        key_states = self.rotary_embedding(key_states, r_embedding_cos, r_embedding_sin)
 
         if self.use_kv_cache:
             key_states, value_states = self.cache_kv(key_states, value_states)
@@ -116,12 +118,7 @@ class Attention(InfiniTensorModel):
         if self.num_kv_groups > 1:
             attn_weights = self.matmul_group_k(query_states, key_states)
         else:
-            attn_weights = self.matmul(query_states, key_states, transB=1)
-
-        attn_weights = self.div(
-            attn_weights,
-            self.sqrt(np.array(self.head_dim).astype(self.dtype.np_type())),
-        )
+            attn_weights = self.matmul(query_states, key_states, alpha=1.0/math.sqrt(self.head_dim), transB=1)
 
         if attention_mask is not None:
             attn_weights = self.add(attn_weights, attention_mask)
@@ -165,7 +162,7 @@ class Attention(InfiniTensorModel):
                 DTYPE.I64,
             ),
         )
-        attn_weights = self.matmul(query_states, key_states, transB=1)
+        attn_weights = self.matmul(query_states, key_states, alpha=1.0/math.sqrt(self.head_dim), transB=1)
         attn_weights = self.reshape(
             attn_weights,
             self.dynamic_tensor(

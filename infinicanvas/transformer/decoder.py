@@ -21,6 +21,8 @@ class DecoderLayer(InfiniTensorModel):
             dtype=config.dtype,
             attention_bias=config.attention_bias,
             use_kv_cache=config.use_cache,
+            rope_theta = config.rope_theta,
+            rope_scaling = config.rope_scaling,
         )
         self.input_layernorm = self.make_submodel(
             RMSNorm,
@@ -41,16 +43,16 @@ class DecoderLayer(InfiniTensorModel):
         )
 
     def __call__(
-        self, hidden_states, r_embedding_cos, r_embedding_sin, attention_mask=None
+        self, hidden_states, pos_ids, attention_mask=None
     ):
-        super().__call__([hidden_states, r_embedding_cos, r_embedding_sin])
+        super().__call__([hidden_states, pos_ids])
         if attention_mask is not None:
             self.inputs.append(attention_mask)
 
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
         hidden_states = self.attention_layer(
-            hidden_states, r_embedding_cos, r_embedding_sin, attention_mask
+            hidden_states, pos_ids, attention_mask
         )
         hidden_states = self.add(hidden_states, residual)
 

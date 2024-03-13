@@ -257,7 +257,7 @@ def main(model_path):
     tokenizer = CPM9GTokenizer(os.path.join(model_path, "vocabs.txt"))
     config = LlamaConfig(**settings)
     model = LlamaModel(config)
-    inputs = ["token_ids", "r_embedding_cos", "r_embedding_sin", "attention_mask"]
+    inputs = ["token_ids", "pos_ids", "attention_mask"]
     model(*inputs)
     model.to("nvidia", 9)
     model.load_params(load_model_pt(os.path.join(model_path, "cpm9g-11b-sft.pt")))
@@ -265,6 +265,8 @@ def main(model_path):
     model.generate(
         "Once upon a time,",
         tokenizer,
+        temperature=0,
+        max_length=100
     )
 
 

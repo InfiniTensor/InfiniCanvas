@@ -88,15 +88,15 @@ class LlamaModel(InfiniTensorModel):
         )
 
     def __call__(
-        self, token_ids, r_embedding_cos, r_embedding_sin, attention_mask=None
+        self, token_ids, pos_ids, attention_mask=None
     ):
-        super().__call__([token_ids, r_embedding_cos, r_embedding_sin])
+        super().__call__([token_ids, pos_ids])
         if attention_mask is not None:
             self.inputs.append(attention_mask)
         hidden_states = self.gather(self.embed_tokens, token_ids, axis=0)
         for i in range(self.num_layers):
             hidden_states = self.decoders[i](
-                hidden_states, r_embedding_cos, r_embedding_sin, attention_mask
+                hidden_states, pos_ids, attention_mask
             )
         hidden_states = self.layernorm(hidden_states)
         logits = self.lm_head(hidden_states)
@@ -104,8 +104,8 @@ class LlamaModel(InfiniTensorModel):
         return logits
 
     def generate(self, input_text: str, tokenizer: InfiniTensorTokenizer, top_k=3, top_p=1.0, temperature=1.0, max_length = 100):
-        token_ids, r_embedding_cos, r_embedding_sin = tuple(self.inputs[:3])
-        attention_mask = self.inputs[3] if len(self.inputs) >= 4 else None
+        token_ids, pos_ids = tuple(self.inputs[:2])
+        attention_mask = self.inputs[2] if len(self.inputs) >=3 else None
 
         input_tokens = tokenizer.encode(input_text)
         batch_size, seq_len, past_seq_len = 1, len(input_tokens), 0
@@ -117,10 +117,9 @@ class LlamaModel(InfiniTensorModel):
                 * -np.inf,
                 1,
             )
-        pos_ids = (np.arange(seq_len, dtype=np.int64) + past_seq_len).reshape(
-            (batch_size, seq_len)
+        inputs[pos_ids] = np.tile(np.arange(seq_len, dtype=np.int64) + past_seq_len,(
+            (batch_size, 1))
         )
-        inputs[r_embedding_cos], inputs[r_embedding_sin] = self.rope_embed(pos_ids)
 
         variable_map = {
             "batch_size": batch_size,
@@ -143,7 +142,7 @@ class LlamaModel(InfiniTensorModel):
         max_length = min(max_length + seq_len, self.config.hidden_size)
         for pos_id in range(seq_len, max_length):
             inputs[token_ids] = output_token
-            inputs[r_embedding_cos], inputs[r_embedding_sin] = self.rope_embed([pos_id])
+            inputs[pos_ids] = np.full((batch_size, 1), pos_id)
             if attention_mask is not None:
                 inputs[attention_mask] = np.zeros(
                     (batch_size, 1, 1, pos_id + 1), dtype=self.config.dtype.np_type()
@@ -158,8 +157,8 @@ class LlamaModel(InfiniTensorModel):
             output_text = tokenizer.decode(output_token.flatten().tolist())
             print(output_text, end="")
             whole_text += output_text
-            # if whole_text.endswith("</s>"):
-            #     break
+            if whole_text.endswith("</s>"):
+                break
         print("")
         return whole_text
 

@@ -518,10 +518,10 @@ class InfiniTensorModel:
     def pow(self, A, B, C="") -> str:
         return self.make_op("Pow", {}, (A, B), (C,))[0]
 
-    def matmul(self, A, B, Y="", transA=0, transB=0) -> str:
+    def matmul(self, A, B, Y="", alpha=1.0, beta=1.0, transA=0, transB=0) -> str:
         return self.make_op(
             "MatMul",
-            {"transA": transA, "transB": transB},
+            {"alpha": alpha, "beta": beta, "transA": transA, "transB": transB},
             (A, B),
             (Y,),
             op_standard=OperatorStandard.LLM,
@@ -611,6 +611,17 @@ class InfiniTensorModel:
             "RmsNormalization",
             {"epsilon": eps},
             (input, weight),
+            (output,),
+            op_standard=OperatorStandard.LLM,
+        )[0]
+
+    def rotary_position_embedding(
+        self, input, pos_ids, theta=10000.0, output=""
+    ) -> str:
+        return self.make_op(
+            "RotaryPositionEmbedding",
+            {"theta": theta},
+            (input, pos_ids),
             (output,),
             op_standard=OperatorStandard.LLM,
         )[0]
