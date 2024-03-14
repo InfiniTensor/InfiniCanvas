@@ -19,10 +19,8 @@ class FeedForward(InfiniTensorModel):
         )
         self.act_fn = self.silu
 
-    def __call__(self, x):
-        super().__call__([x])
+    def forward(self, x):
         output = self.down_proj(
             self.mul(self.act_fn(self.gate_proj(x)), self.up_proj(x))
         )
-        self.outputs = [output]
         return output

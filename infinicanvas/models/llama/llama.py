@@ -84,12 +84,9 @@ class LlamaModel(InfiniTensorModel):
             model_name="lm_head",
         )
 
-    def __call__(
+    def forward(
         self, token_ids, pos_ids, attention_mask=None
     ):
-        super().__call__([token_ids, pos_ids])
-        if attention_mask is not None:
-            self.inputs.append(attention_mask)
         hidden_states = self.gather(self.embed_tokens, token_ids, axis=0)
         for i in range(self.num_layers):
             hidden_states = self.decoders[i](
@@ -97,7 +94,6 @@ class LlamaModel(InfiniTensorModel):
             )
         hidden_states = self.layernorm(hidden_states)
         logits = self.lm_head(hidden_states)
-        self.outputs = [logits]
         return logits
 
     def generate(self, input_text: str, tokenizer: InfiniTensorTokenizer, top_k=3, top_p=1.0, temperature=1.0, max_length = 100):

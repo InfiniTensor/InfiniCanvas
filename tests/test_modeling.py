@@ -11,11 +11,9 @@ class TestModeling(unittest.TestCase):
         def __init__(self, **kwargs):
             super().__init__(**kwargs)
 
-        def __call__(self, input: str) -> str:
-            super().__call__([input])
+        def forward(self, input: str) -> str:
             bias = np.array(1).astype(np.int32)
             outputs = self.make_op("Add", {}, tuple([input, bias]))
-            self.outputs.append(outputs[0])
             return outputs[0]
 
     def test_add_op(self):
@@ -32,11 +30,9 @@ class TestModeling(unittest.TestCase):
             self.addone1 = self.make_submodel(TestModeling.AddOneModel)
             self.addone2 = self.make_submodel(TestModeling.AddOneModel)
 
-        def __call__(self, input: str):
-            super().__call__([input])
+        def forward(self, input: str):
             output = self.addone1(input)
             output = self.addone2(output)
-            self.outputs.append(output)
             return output
 
     def test_submodule(self):
@@ -53,11 +49,9 @@ class TestModeling(unittest.TestCase):
             self.addtwo = self.make_submodel(TestModeling.AddTwoModel)
             self.bias = self.parameter(shape, DTYPE.I32, "bias")
 
-        def __call__(self, input: str):
-            super().__call__([input])
+        def forward(self, input: str):
             output = self.addtwo(input)
             output = self.make_op("Add", {}, tuple([output, self.bias]), ("output",))[0]
-            self.outputs.append(output)
             return output
 
     def test_submodule_topo(self):
@@ -108,11 +102,9 @@ class TestModeling(unittest.TestCase):
             self.b = "b"
             self.l = "l"
 
-        def __call__(self, input: str):
-            super().__call__([input])
+        def forward(self, input: str):
             shape = self.dynamic_tensor((self.b, self.l, 2), DTYPE.I64)
             output = self.reshape(input, shape)
-            self.outputs = [output]
             return output
 
     def test_resolve_dynamic_variables(self):

@@ -71,13 +71,9 @@ class Attention(InfiniTensorModel):
             model_name="o_proj",
         )
 
-    def __call__(
+    def forward(
         self, hidden_states, pos_ids, attention_mask=None
     ):
-        super().__call__([hidden_states, pos_ids])
-        if attention_mask is not None:
-            self.inputs.append(attention_mask)
-
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
@@ -143,7 +139,6 @@ class Attention(InfiniTensorModel):
         )
         attn_output = self.o_proj(attn_output)
 
-        self.outputs = [attn_output]
         return attn_output
 
     def matmul_group_k(self, query_states, key_states):

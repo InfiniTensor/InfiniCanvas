@@ -13,15 +13,25 @@
 
 #### 1. InfiniTensorModel
 
-本项目中的模型均继承自 `InfiniTensorModel` 基类（类似PyTorch中的 `nn.Module`）。
+本项目中的模型均继承自 `InfiniTensorModel` 基类（用法类似PyTorch中的 `nn.Module`）。
 
 #### 2. 模型构造
 
-在 `__init__()` 函数中定义该模型的各类参数，以及子模块。其中常量使用 `self.constant` 创建；模型参数（可导入导出）使用 `self.parameter` 创建。使用 `self.make_submodel(ModelClassName, ...)` 可在模型中创建子模型（同为`InfiniTensorModel` 的子类）。需要注意的是，子模型创建必须在 `__init__()` 函数中且必须使用 `self.make_submodel` 函数创建，这个函数会隐式调用子模型类的构造函数。这是因为模型与子模型需要共享一套命名空间，且在构造外围模型时子模型必须先完成构建。定义 `__init__()` 函数时，必须传入 `**kwargs` 参数，必须调用 `super().__init__(**kwargs)`。
+在 `__init__()` 函数中定义该模型的各类参数，以及子模块。
+
+其中常量使用 `self.constant` 创建；模型参数（可导入导出）使用 `self.parameter` 创建。使用 `self.make_submodel(ModelClassName, ...)` 可在模型中创建子模型（同为`InfiniTensorModel` 的子类）。需要注意的是，子模型创建必须在 `__init__()` 函数中且必须使用 `self.make_submodel` 函数创建，这个函数会隐式调用子模型类的构造函数。这是因为模型与子模型需要共享一套命名空间，且在构造外围模型时子模型必须先完成构建。
+
+定义 `__init__()` 函数时，必须传入 `**kwargs` 参数，必须调用 `super().__init__(**kwargs)`。
 
 #### 3. 计算图构造
 
-在 `__call__()` 函数中定义该模型推理时的计算图。 `InfiniTensorModel` 基类提供了一系列算子API，如 `self.add` 等。也可调用子模型的  `__call__()` 函数，代表子模块的计算。与PyTorch的 `forward()` 函数不同的是，这里的 `__call__()` 函数并不会发生任何计算，而只是用来构建计算图，因此传进来的参数是代表张量的张量名称（字符串）。一般来说，传进来的输入以及模型的输出应该分别被添加至 `self.inputs` 和 `self.outputs` 中。原则上，一个模型包括其子模型的 `__call__()` 函数只可被调用一次。
+在 `forward()` 函数中定义该模型推理时的计算图，所有`InfiniTensorModel` 子类必须定义这个函数。与PyTorch的 `forward()` 函数不同的是，这里的 `forward()` 函数并不会发生任何计算，而只是用来构建计算图，因此传进来的参数是代表张量的张量名称（字符串）。
+
+ 在 `forward()` 函数中，有两种方式在计算图中增加节点：
+
+ 1. `InfiniTensorModel` 基类提供的一系列算子API，如 `self.add` 等。
+
+ 2. 调用初始化时构建的子模型的  `__call__()`（或`forward()`） 函数，代表将子模块加入计算图。在调用`__call__()` 函数时，`forward()`会被隐式调用，传进来的输入以及模型的输出应该分别被添加至 `self.inputs` 和 `self.outputs` 中。原则上，一个模型包括其子模型的 `forward()` 函数只可被调用一次。
 
 以下为一个语言模型常用的FeedFoward层的定义。
 
@@ -47,12 +57,10 @@ class Linear(InfiniTensorModel):
                 np.random.random(out_features).astype(dtype.np_type()), "bias"
             )
 
-    def __call__(self, input):
-        super().__call__([input])
+    def forward(self, input):
         output = self.matmul(input, self.weight, transB=1)
         if self.use_bias:
             output = self.add(output, self.bias)
-        self.outputs.append(output)
         return output
 
 class FeedForward(InfiniTensorModel):
@@ -74,12 +82,10 @@ class FeedForward(InfiniTensorModel):
         )
         self.act_fn = self.silu
 
-    def __call__(self, x):
-        super().__call__([x])
+    def forward(self, x):
         output = self.down_proj(
             self.mul(self.act_fn(self.gate_proj(x)), self.up_proj(x))
         )
-        self.outputs = [output]
         return output
 ```
 
