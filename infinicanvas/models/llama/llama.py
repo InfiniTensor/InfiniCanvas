@@ -58,9 +58,6 @@ class LlamaModel(InfiniTensorModel):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
         self.config = config
-        self.rope_embed = ROPE_HF(
-            config.hidden_size // config.num_attention_heads, config.dtype.np_type()
-        )
         self.num_layers = config.num_hidden_layers
         self.embed_tokens = self.parameter(
             (config.vocab_size, config.hidden_size),
@@ -87,25 +84,21 @@ class LlamaModel(InfiniTensorModel):
             model_name="lm_head",
         )
 
-    def __call__(
-        self, token_ids, r_embedding_cos, r_embedding_sin, attention_mask=None
+    def forward(
+        self, token_ids, pos_ids, attention_mask=None
     ):
-        super().__call__([token_ids, r_embedding_cos, r_embedding_sin])
-        if attention_mask is not None:
-            self.inputs.append(attention_mask)
         hidden_states = self.gather(self.embed_tokens, token_ids, axis=0)
         for i in range(self.num_layers):
             hidden_states = self.decoders[i](
-                hidden_states, r_embedding_cos, r_embedding_sin, attention_mask
+                hidden_states, pos_ids, attention_mask
             )
         hidden_states = self.layernorm(hidden_states)
         logits = self.lm_head(hidden_states)
-        self.outputs = [logits]
         return logits
 
     def generate(self, input_text: str, tokenizer: InfiniTensorTokenizer, top_k=3, top_p=1.0, temperature=1.0, max_length = 100):
-        token_ids, r_embedding_cos, r_embedding_sin = tuple(self.inputs[:3])
-        attention_mask = self.inputs[3] if len(self.inputs) >= 4 else None
+        token_ids, pos_ids = tuple(self.inputs[:2])
+        attention_mask = self.inputs[2] if len(self.inputs) >=3 else None
 
         input_tokens = tokenizer.encode(input_text)
         batch_size, seq_len, past_seq_len = 1, len(input_tokens), 0
@@ -117,10 +110,9 @@ class LlamaModel(InfiniTensorModel):
                 * -np.inf,
                 1,
             )
-        pos_ids = (np.arange(seq_len, dtype=np.int64) + past_seq_len).reshape(
-            (batch_size, seq_len)
+        inputs[pos_ids] = np.tile(np.arange(seq_len, dtype=np.int64) + past_seq_len,(
+            (batch_size, 1))
         )
-        inputs[r_embedding_cos], inputs[r_embedding_sin] = self.rope_embed(pos_ids)
 
         variable_map = {
             "batch_size": batch_size,
@@ -143,7 +135,7 @@ class LlamaModel(InfiniTensorModel):
         max_length = min(max_length + seq_len, self.config.hidden_size)
         for pos_id in range(seq_len, max_length):
             inputs[token_ids] = output_token
-            inputs[r_embedding_cos], inputs[r_embedding_sin] = self.rope_embed([pos_id])
+            inputs[pos_ids] = np.full((batch_size, 1), pos_id)
             if attention_mask is not None:
                 inputs[attention_mask] = np.zeros(
                     (batch_size, 1, 1, pos_id + 1), dtype=self.config.dtype.np_type()
@@ -158,8 +150,8 @@ class LlamaModel(InfiniTensorModel):
             output_text = tokenizer.decode(output_token.flatten().tolist())
             print(output_text, end="")
             whole_text += output_text
-            # if whole_text.endswith("</s>"):
-            #     break
+            if whole_text.endswith("</s>"):
+                break
         print("")
         return whole_text
 
@@ -227,27 +219,25 @@ def random_search(logits, top_k=5, top_p=1.0, temperature=1.0) -> np.ndarray:
 
     return np.array(result).reshape(bs, seq_l)
 
+# Deprecated
+# class ROPE_HF:
+#     def __init__(self, dim, dtype, max_position_embeddings=4096, base=10000) -> None:
+#         self.dim = dim
+#         self.max_position_embeddings = max_position_embeddings
+#         self.base = base
+#         inv_freq = 1.0 / (self.base ** (np.arange(0, self.dim, 2) / self.dim))
+#         self.inv_freq = inv_freq
+#         self._set_cos_sin_cache(seq_len=max_position_embeddings, dtype=dtype)
 
-class ROPE_HF:
-    def __init__(self, dim, dtype, max_position_embeddings=4096, base=10000) -> None:
-        self.dim = dim
-        self.max_position_embeddings = max_position_embeddings
-        self.base = base
-        inv_freq = 1.0 / (self.base ** (np.arange(0, self.dim, 2) / self.dim))
-        self.inv_freq = inv_freq
+#     def _set_cos_sin_cache(self, seq_len, dtype):
+#         self.max_seq_len_cached = seq_len
+#         t = np.arange(self.max_seq_len_cached, dtype=self.inv_freq.dtype)
 
-        # Build here to make `torch.jit.trace` work.
-        self._set_cos_sin_cache(seq_len=max_position_embeddings, dtype=dtype)
+#         freqs = np.einsum("i,j->ij", t, self.inv_freq)
+#         # Different from paper, but it uses a different permutation in order to obtain the same calculation
+#         emb = np.concatenate((freqs, freqs), axis=-1)
+#         self.cos_cached = np.cos(emb).astype(dtype)
+#         self.sin_cached = np.sin(emb).astype(dtype)
 
-    def _set_cos_sin_cache(self, seq_len, dtype):
-        self.max_seq_len_cached = seq_len
-        t = np.arange(self.max_seq_len_cached, dtype=self.inv_freq.dtype)
-
-        freqs = np.einsum("i,j->ij", t, self.inv_freq)
-        # Different from paper, but it uses a different permutation in order to obtain the same calculation
-        emb = np.concatenate((freqs, freqs), axis=-1)
-        self.cos_cached = np.cos(emb).astype(dtype)
-        self.sin_cached = np.sin(emb).astype(dtype)
-
-    def __call__(self, pos_ids):
-        return self.cos_cached[pos_ids].copy(), self.sin_cached[pos_ids].copy()
+#     def __call__(self, pos_ids):
+#         return self.cos_cached[pos_ids].copy(), self.sin_cached[pos_ids].copy()

@@ -23,10 +23,8 @@ class Linear(InfiniTensorModel):
         if self.use_bias:
             self.bias = self.parameter((out_features,), dtype, "bias")
 
-    def __call__(self, input):
-        super().__call__([input])
+    def forward(self, input):
         output = self.matmul(input, self.weight, transB=1)
         if self.use_bias:
             output = self.add(output, self.bias)
-        self.outputs.append(output)
         return output

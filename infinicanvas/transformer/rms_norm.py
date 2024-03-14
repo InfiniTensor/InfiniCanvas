@@ -10,10 +10,8 @@ class RMSNorm(InfiniTensorModel):
         self.dtype = dtype
         self.weight = self.parameter((self.hidden_size,), DTYPE.F32, "weight")
 
-    def __call__(self, hidden_states):
-        super().__call__([hidden_states])
+    def forward(self, hidden_states):
         hidden_states = self.cast(hidden_states, DTYPE.F32)
         hidden_states = self.rms_norm(hidden_states, self.weight, self.eps)
         hidden_states = self.cast(hidden_states, self.dtype)
-        self.outputs = [hidden_states]
         return hidden_states

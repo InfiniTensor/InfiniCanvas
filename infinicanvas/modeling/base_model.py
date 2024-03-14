@@ -13,7 +13,8 @@ from typing import Dict, List, Any, Tuple, Union
 import numpy as np
 from collections import OrderedDict
 from .tensor import DTYPE, find_onnx_type, TensorRecord
-
+from enum import Enum
+from abc import ABC, abstractmethod
 
 def next_name(names_dict: Dict[str, int], name: str):
     if name in names_dict:
@@ -38,7 +39,14 @@ def resolve_variable(
     return result
 
 
-class InfiniTensorModel:
+class OperatorStandard(Enum):
+    # Onnx standard (default)
+    ONNX = "onnx"
+    # Custom large language model standard
+    LLM = "llm"
+
+
+class InfiniTensorModel(ABC):
     """
     Base class for frontend modeling
 
@@ -49,11 +57,9 @@ class InfiniTensorModel:
                 super().__init__(**kwargs)
                 self.weight = self.parameter(np.array(...), "Weight")
 
-            def __call__(self, input1, input2):
-                super().__call__([input1, input2])
+            def forward(self, input1, input2):
                 output = self.add(input1, input2)
                 output = self.matmal(output, self.weight)
-                self.outputs = [output]
                 return output
     """
 
@@ -132,18 +138,37 @@ class InfiniTensorModel:
         self._device = "cpu"
         self._device_id = 0
 
-    def __call__(self, inputs: List[str]) -> Tuple[str, ...] | str | None:
-        """Method that actually builds the model given input names. Normally should
-        be overriden by sub classes.
+    def __call__(self, *args, **kwargs) -> Tuple[str, ...] | str | None:
+        """Call forward() method and add all meaningful inputs and outputs
+        """
+        self.inputs.clear()
+        self.outputs.clear()
+        for input in args:
+            if isinstance(input, str):
+                self.inputs.append(input)
+        for _, input in kwargs.items():
+            if isinstance(input, str):
+                self.inputs.append(input)
 
-        Args:
-            inputs (List[str]): input names
+        outputs = self.forward(*args, **kwargs)
+
+        if isinstance(outputs, Tuple):
+            for output in outputs:
+                if isinstance(output, str):
+                    self.outputs.append(output)
+        elif outputs is not None:
+            self.outputs.append(outputs)
+        
+        return outputs
+
+    @abstractmethod
+    def forward(*args, **kwargs) -> Tuple[str, ...] | str | None:
+        """Abstraction for forward(), should be overridden.
 
         Returns:
-            List[str]: output names
+            Tuple[str, ...] | str | None: outputs
         """
-        self.inputs = inputs.copy()
-        self.outputs = []
+        return NotImplemented
 
     def make_op(
         self,
@@ -152,11 +177,12 @@ class InfiniTensorModel:
         inputs: Tuple[Union[str, np.ndarray], ...],
         outputs: Tuple[str, ...] | int = 1,
         name: str | None = None,
-        use_onnx_standard: bool = True,
+        op_standard: OperatorStandard = OperatorStandard.ONNX,
     ):
-        op_name = op_type
-        if use_onnx_standard and not op_type.startswith("onnx::"):
-            op_name = "onnx::" + op_name
+        if op_standard == OperatorStandard.LLM:
+            op_name = "llm::" + op_type
+        else:  # ONNX
+            op_name = "onnx::" + op_type
         # Get complete node name from op_type if name not given.
         # This node name should be unique throughout the whole model topology.
         node_name = (
@@ -509,13 +535,13 @@ class InfiniTensorModel:
     def pow(self, A, B, C="") -> str:
         return self.make_op("Pow", {}, (A, B), (C,))[0]
 
-    def matmul(self, A, B, Y="", transA=0, transB=0) -> str:
+    def matmul(self, A, B, Y="", alpha=1.0, beta=1.0, transA=0, transB=0) -> str:
         return self.make_op(
-            "llm::MatMul",
-            {"transA": transA, "transB": transB},
+            "MatMul",
+            {"alpha": alpha, "beta": beta, "transA": transA, "transB": transB},
             (A, B),
             (Y,),
-            use_onnx_standard=False,
+            op_standard=OperatorStandard.LLM,
         )[0]
 
     def gemm(self, A, B, C=None, Y="", alpha=1.0, beta=1.0, transA=0, transB=0) -> str:
@@ -599,9 +625,20 @@ class InfiniTensorModel:
 
     def rms_norm(self, input, weight, eps=1e-5, output=""):
         return self.make_op(
-            "llm::RmsNormalization",
+            "RmsNormalization",
             {"epsilon": eps},
             (input, weight),
             (output,),
-            use_onnx_standard=False,
+            op_standard=OperatorStandard.LLM,
+        )[0]
+
+    def rotary_position_embedding(
+        self, input, pos_ids, theta=10000.0, output=""
+    ) -> str:
+        return self.make_op(
+            "RotaryPositionEmbedding",
+            {"theta": theta},
+            (input, pos_ids),
+            (output,),
+            op_standard=OperatorStandard.LLM,
         )[0]

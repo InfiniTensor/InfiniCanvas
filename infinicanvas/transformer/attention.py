@@ -1,7 +1,7 @@
 from ..modeling import InfiniTensorModel, DTYPE
 from ..nn import Linear
 import numpy as np
-
+import math
 
 class Attention(InfiniTensorModel):
     def __init__(
@@ -16,6 +16,8 @@ class Attention(InfiniTensorModel):
         attention_bias=False,
         use_kv_cache=True,
         past_seq_len="past_seq_len",
+        rope_theta = 10000.0,
+        rope_scaling = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -34,6 +36,7 @@ class Attention(InfiniTensorModel):
             if isinstance(self.seq_len, int) and isinstance(self.past_seq_len, int)
             else "total_seq_len"
         )
+        self.rope_theta = rope_theta
 
         self.q_proj = self.make_submodel(
             Linear,
@@ -67,15 +70,10 @@ class Attention(InfiniTensorModel):
             self.dtype,
             model_name="o_proj",
         )
-        self.rotary_embedding = self.make_submodel(RotaryEmbedding, self.head_dim)
 
-    def __call__(
-        self, hidden_states, r_embedding_cos, r_embedding_sin, attention_mask=None
+    def forward(
+        self, hidden_states, pos_ids, attention_mask=None
     ):
-        super().__call__([hidden_states, r_embedding_cos, r_embedding_sin])
-        if attention_mask is not None:
-            self.inputs.append(attention_mask)
-
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
@@ -101,28 +99,21 @@ class Attention(InfiniTensorModel):
                 DTYPE.I64,
             ),
         )
+
+        query_states = self.rotary_position_embedding(query_states, pos_ids, self.rope_theta)
+        key_states = self.rotary_position_embedding(key_states, pos_ids, self.rope_theta)
+
         query_states = self.transpose(query_states, [0, 2, 1, 3])
         key_states = self.transpose(key_states, [0, 2, 1, 3])
         value_states = self.transpose(value_states, [0, 2, 1, 3])
 
-        query_states = self.rotary_embedding(
-            query_states, r_embedding_cos, r_embedding_sin
-        )
-        key_states = self.rotary_embedding(key_states, r_embedding_cos, r_embedding_sin)
-
         if self.use_kv_cache:
             key_states, value_states = self.cache_kv(key_states, value_states)
 
-        key_states = self.transpose(key_states, [0, 1, 3, 2])
         if self.num_kv_groups > 1:
             attn_weights = self.matmul_group_k(query_states, key_states)
         else:
-            attn_weights = self.matmul(query_states, key_states)
-
-        attn_weights = self.div(
-            attn_weights,
-            self.sqrt(np.array(self.head_dim).astype(self.dtype.np_type())),
-        )
+            attn_weights = self.matmul(query_states, key_states, alpha=1.0/math.sqrt(self.head_dim), transB=1)
 
         if attention_mask is not None:
             attn_weights = self.add(attn_weights, attention_mask)
@@ -148,7 +139,6 @@ class Attention(InfiniTensorModel):
         )
         attn_output = self.o_proj(attn_output)
 
-        self.outputs = [attn_output]
         return attn_output
 
     def matmul_group_k(self, query_states, key_states):
@@ -166,7 +156,7 @@ class Attention(InfiniTensorModel):
                 DTYPE.I64,
             ),
         )
-        attn_weights = self.matmul(query_states, key_states)
+        attn_weights = self.matmul(query_states, key_states, alpha=1.0/math.sqrt(self.head_dim), transB=1)
         attn_weights = self.reshape(
             attn_weights,
             self.dynamic_tensor(
@@ -177,7 +167,7 @@ class Attention(InfiniTensorModel):
         return attn_weights
 
     def matmul_group_v(self, attn_weights, value_states):
-        key_states = self.unsqueeze(value_states, 2)
+        value_states = self.unsqueeze(value_states, 2)
         attn_weights = self.reshape(
             attn_weights,
             self.dynamic_tensor(
@@ -191,7 +181,7 @@ class Attention(InfiniTensorModel):
                 DTYPE.I64,
             ),
         )
-        attn_output = self.matmul(attn_weights, key_states)
+        attn_output = self.matmul(attn_weights, value_states)
         attn_output = self.reshape(
             attn_output,
             self.dynamic_tensor(
@@ -234,24 +224,25 @@ class Attention(InfiniTensorModel):
         )
         return key_states, value_states
 
+# Deprecated
+# TODO：May be useful for future onnx support    
+# class RotaryEmbedding(InfiniTensorModel):
+#     def __init__(self, head_dim, **kwargs):
+#         super().__init__(**kwargs)
+#         self.head_dim = head_dim
 
-class RotaryEmbedding(InfiniTensorModel):
-    def __init__(self, head_dim, **kwargs):
-        super().__init__(**kwargs)
-        self.head_dim = head_dim
+#     def __call__(self, input, cos, sin):
+#         """
+#         Args:
+#             cos/sin:(seq_len, head_dim)
+#             input: (bs, num_head, seq_len, head_dim)
+#         """
+#         super().__call__([input, cos, sin])
+#         embed = self.add(self.mul(input, cos), self.mul(self.rotate_half(input), sin))
+#         self.outputs = [embed]
+#         return embed
 
-    def __call__(self, input, cos, sin):
-        """
-        Args:
-            cos/sin:(seq_len, head_dim)
-            input: (bs, num_head, seq_len, head_dim)
-        """
-        super().__call__([input, cos, sin])
-        embed = self.add(self.mul(input, cos), self.mul(self.rotate_half(input), sin))
-        self.outputs = [embed]
-        return embed
-
-    def rotate_half(self, x):
-        x1 = self.slice(x, -1, 0, self.head_dim // 2)
-        x2 = self.slice(x, -1, self.head_dim // 2)
-        return self.concat((self.neg(x2), x1), axis=-1)
+#     def rotate_half(self, x):
+#         x1 = self.slice(x, -1, 0, self.head_dim // 2)
+#         x2 = self.slice(x, -1, self.head_dim // 2)
+#         return self.concat((self.neg(x2), x1), axis=-1)
