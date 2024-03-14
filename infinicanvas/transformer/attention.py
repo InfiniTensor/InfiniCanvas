@@ -70,7 +70,6 @@ class Attention(InfiniTensorModel):
             self.dtype,
             model_name="o_proj",
         )
-        self.rotary_embedding = self.make_submodel(RotaryEmbedding, self.head_dim)
 
     def __call__(
         self, hidden_states, pos_ids, attention_mask=None
@@ -230,24 +229,25 @@ class Attention(InfiniTensorModel):
         )
         return key_states, value_states
 
+# Deprecated
+# TODO：May be useful for future onnx support    
+# class RotaryEmbedding(InfiniTensorModel):
+#     def __init__(self, head_dim, **kwargs):
+#         super().__init__(**kwargs)
+#         self.head_dim = head_dim
 
-class RotaryEmbedding(InfiniTensorModel):
-    def __init__(self, head_dim, **kwargs):
-        super().__init__(**kwargs)
-        self.head_dim = head_dim
+#     def __call__(self, input, cos, sin):
+#         """
+#         Args:
+#             cos/sin:(seq_len, head_dim)
+#             input: (bs, num_head, seq_len, head_dim)
+#         """
+#         super().__call__([input, cos, sin])
+#         embed = self.add(self.mul(input, cos), self.mul(self.rotate_half(input), sin))
+#         self.outputs = [embed]
+#         return embed
 
-    def __call__(self, input, cos, sin):
-        """
-        Args:
-            cos/sin:(seq_len, head_dim)
-            input: (bs, num_head, seq_len, head_dim)
-        """
-        super().__call__([input, cos, sin])
-        embed = self.add(self.mul(input, cos), self.mul(self.rotate_half(input), sin))
-        self.outputs = [embed]
-        return embed
-
-    def rotate_half(self, x):
-        x1 = self.slice(x, -1, 0, self.head_dim // 2)
-        x2 = self.slice(x, -1, self.head_dim // 2)
-        return self.concat((self.neg(x2), x1), axis=-1)
+#     def rotate_half(self, x):
+#         x1 = self.slice(x, -1, 0, self.head_dim // 2)
+#         x2 = self.slice(x, -1, self.head_dim // 2)
+#         return self.concat((self.neg(x2), x1), axis=-1)

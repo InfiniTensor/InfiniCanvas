@@ -58,9 +58,6 @@ class LlamaModel(InfiniTensorModel):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
         self.config = config
-        self.rope_embed = ROPE_HF(
-            config.hidden_size // config.num_attention_heads, config.dtype.np_type()
-        )
         self.num_layers = config.num_hidden_layers
         self.embed_tokens = self.parameter(
             (config.vocab_size, config.hidden_size),
@@ -226,27 +223,25 @@ def random_search(logits, top_k=5, top_p=1.0, temperature=1.0) -> np.ndarray:
 
     return np.array(result).reshape(bs, seq_l)
 
+# Deprecated
+# class ROPE_HF:
+#     def __init__(self, dim, dtype, max_position_embeddings=4096, base=10000) -> None:
+#         self.dim = dim
+#         self.max_position_embeddings = max_position_embeddings
+#         self.base = base
+#         inv_freq = 1.0 / (self.base ** (np.arange(0, self.dim, 2) / self.dim))
+#         self.inv_freq = inv_freq
+#         self._set_cos_sin_cache(seq_len=max_position_embeddings, dtype=dtype)
 
-class ROPE_HF:
-    def __init__(self, dim, dtype, max_position_embeddings=4096, base=10000) -> None:
-        self.dim = dim
-        self.max_position_embeddings = max_position_embeddings
-        self.base = base
-        inv_freq = 1.0 / (self.base ** (np.arange(0, self.dim, 2) / self.dim))
-        self.inv_freq = inv_freq
+#     def _set_cos_sin_cache(self, seq_len, dtype):
+#         self.max_seq_len_cached = seq_len
+#         t = np.arange(self.max_seq_len_cached, dtype=self.inv_freq.dtype)
 
-        # Build here to make `torch.jit.trace` work.
-        self._set_cos_sin_cache(seq_len=max_position_embeddings, dtype=dtype)
+#         freqs = np.einsum("i,j->ij", t, self.inv_freq)
+#         # Different from paper, but it uses a different permutation in order to obtain the same calculation
+#         emb = np.concatenate((freqs, freqs), axis=-1)
+#         self.cos_cached = np.cos(emb).astype(dtype)
+#         self.sin_cached = np.sin(emb).astype(dtype)
 
-    def _set_cos_sin_cache(self, seq_len, dtype):
-        self.max_seq_len_cached = seq_len
-        t = np.arange(self.max_seq_len_cached, dtype=self.inv_freq.dtype)
-
-        freqs = np.einsum("i,j->ij", t, self.inv_freq)
-        # Different from paper, but it uses a different permutation in order to obtain the same calculation
-        emb = np.concatenate((freqs, freqs), axis=-1)
-        self.cos_cached = np.cos(emb).astype(dtype)
-        self.sin_cached = np.sin(emb).astype(dtype)
-
-    def __call__(self, pos_ids):
-        return self.cos_cached[pos_ids].copy(), self.sin_cached[pos_ids].copy()
+#     def __call__(self, pos_ids):
+#         return self.cos_cached[pos_ids].copy(), self.sin_cached[pos_ids].copy()
